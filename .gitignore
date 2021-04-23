@@ -1,0 +1,5 @@
+__pycache__/
+*.txt.lock
+
+# raw data is too large (~400Mb)
+results/tabular_raw/
