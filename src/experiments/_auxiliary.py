@@ -123,12 +123,24 @@ def SHAP_explainer(dataset, regressor, predict_f, Xtrain, Xtest, nvars, nobs):
 
 
 def SHAP_adj_explainer(dataset, regressor, predict_f, Xtrain, Xtest, nvars, nobs):
+    def signal(x):
+        z = np.sign(x)
+        z[z==0] =  1
+    
+        return z
+        
     # calculating the shapley values
-    shapley = SHAP_explainer(dataset, regressor,  predict_f, Xtrain, Xtest, nvars, nobs)
+    shapley = SHAP_explainer(dataset, regressor, predict_f, Xtrain, Xtest, nvars, nobs)
     
     # Adjusting to make SHAP approximate PE
     for i in range(nvars):
-        shapley[:, i] = shapley[:, i] / (Xtest[:, i] - Xtrain[:, i].mean())
+
+        # sign will be used to prevent loosing sign information
+        mean_diff = (Xtest[:, i] - Xtrain[:, i].mean())
+        shapley[:, i] = signal(mean_diff) * shapley[:, i] / np.sqrt(1 + np.power(mean_diff, 2))
+
+        # To avoid division by numbers close to zero when x is approx x.mean(), 
+        # we use the analytic quotient 
 
     return shapley
 
@@ -184,11 +196,45 @@ def GINI_explainer(dataset, regressor, predict_f, Xtrain, Xtest, nvars, nobs):
     return np.array([regressor.feature_importances_])
 
 
+# Specific to original lambda equations
+def gradient_explainer(dataset, regressor, predict_f, Xtrain, Xtest, nvars, nobs):
+
+    # Automatic differentiation
+    gradient_f = jacobian(original_lambdas[dataset])
+
+    gradients = np.zeros_like( Xtest )
+    for i in range(nobs):
+        gradients[i, :] = gradient_f(Xtest[i, :])
+        
+    return gradients
+
+
+def gradient_adj_explainer(dataset, regressor, predict_f, Xtrain, Xtest, nvars, nobs):
+
+    gradients = gradient_explainer(dataset, regressor, predict_f, Xtrain, Xtest, nvars, nobs)
+
+    # Adaptation to make PE correspond to SHAP
+    importances = np.zeros_like( Xtest )
+    for i in range(nvars):
+        importances[:, i] = gradients[:, i].mean() * (Xtest[:, i] - Xtrain[:, i].mean())
+
+    return importances
+
+
 explainer_functions = {
-    'PE'          : PE_explainer,
-    'PE_adj'      : PE_adj_explainer,
-    'SHAP'        : SHAP_explainer,
-    'SHAP_adj'    : SHAP_adj_explainer,
-    'LIME'        : LIME_explainer,
-    'GINI'        : GINI_explainer,
+    # ITEA specific
+    'PE'            : PE_explainer,
+    'PE_adj'        : PE_adj_explainer,
+
+    # original lambdas specific
+    'gradient'     : gradient_explainer,
+    'gradient_adj' : gradient_adj_explainer,
+    
+    # tree ensemble specific
+    'GINI'          : GINI_explainer,
+
+    # Agnostic
+    'SHAP'          : SHAP_explainer,
+    'SHAP_adj'      : SHAP_adj_explainer,
+    'LIME'          : LIME_explainer,
 }
